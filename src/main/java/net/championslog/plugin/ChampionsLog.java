@@ -8,6 +8,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.PlayerChanged;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.RuneScapeProfileType;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -180,6 +181,7 @@ public class ChampionsLog extends Plugin {
             saveInventoryCrc(inventoryId, currentCrc);
 
             var logEvent = new LogEvent(client.getAccountHash(),
+                    RuneScapeProfileType.getCurrent(client),
                     trigger.activity(),
                     inventory.getItems(),
                     Map.of()
