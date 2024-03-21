@@ -23,7 +23,7 @@ dependencies {
 }
 
 group = 'net.championslog'
-version = '1.0.0'
+version = '0.1.0'
 
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
