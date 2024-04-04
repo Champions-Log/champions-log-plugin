@@ -4,6 +4,8 @@ import net.championslog.plugin.events.DisplayNameEvent;
 import net.championslog.plugin.events.LogEvent;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.PlayerChanged;
@@ -17,6 +19,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executors;
@@ -60,6 +64,8 @@ public class ChampionsLog extends Plugin {
     private RemoteConfig remoteConfig;
 
     private String currentDisplayName;
+
+    private final Map<Integer, Item[]> inventoryStates = new HashMap<>();
 
     @Override
     protected void startUp() {
@@ -161,24 +167,9 @@ public class ChampionsLog extends Plugin {
 
         for (var trigger : remoteConfig.inventoryTriggers()) {
 
-            if (trigger.inventoryId() != event.getContainerId()) {
+            if (trigger.inventoryId() != event.getContainerId() || !uniqueInvChange(event)) {
                 continue;
             }
-            var crc = new CRC32();
-
-            for (var item : inventory.getItems()) {
-                crc.update(item.getId());
-                crc.update(item.getQuantity());
-            }
-            var inventoryId = inventory.getId();
-            var previousCrc = getInventoryCrc(inventoryId);
-            var currentCrc = crc.getValue();
-
-            if (previousCrc == currentCrc) {
-                LOGGER.debug("Ignoring inventory {} changed event, contents match previous, prev: {} curr: {}", inventoryId, previousCrc, currentCrc);
-                return;
-            }
-            saveInventoryCrc(inventoryId, currentCrc);
 
             var logEvent = new LogEvent(client.getAccountHash(),
                     RuneScapeProfileType.getCurrent(client),
@@ -188,6 +179,45 @@ public class ChampionsLog extends Plugin {
             );
             eventBuffer.queue(logEvent);
         }
+    }
+
+    private boolean uniqueInvChange(ItemContainerChanged event) {
+        var inventory = event.getItemContainer();
+        var inventoryId = inventory.getId();
+
+        if (invRemovedItem(inventory)) {
+            LOGGER.debug("Ignoring inventory {} changed event, item was removed", inventoryId);
+            return false;
+        }
+        var crc = new CRC32();
+
+        for (var item : inventory.getItems()) {
+            crc.update(item.getId());
+            crc.update(item.getQuantity());
+        }
+        var previousCrc = getInventoryCrc(inventoryId);
+        var currentCrc = crc.getValue();
+
+        if (previousCrc == currentCrc) {
+            LOGGER.debug("Ignoring inventory {} changed event, contents match previous, prev: {} curr: {}", inventoryId, previousCrc, currentCrc);
+            return false;
+        }
+        saveInventoryCrc(inventoryId, currentCrc);
+        return true;
+    }
+
+    private boolean invRemovedItem(ItemContainer inventory) {
+        // checks whenever items were removed from the inventory without any new additions
+        var previousState = inventoryStates.get(inventory.getId());
+
+        var currentState = inventory.getItems();
+        inventoryStates.put(inventory.getId(), Arrays.copyOf(currentState, currentState.length));
+
+        if (previousState == null) {
+            return false;
+        }
+        var delta = InventoryDelta.compute(previousState, currentState);
+        return delta.added().isEmpty() && !delta.removed().isEmpty();
     }
 
     private long getInventoryCrc(int inventoryId) {
@@ -203,6 +233,6 @@ public class ChampionsLog extends Plugin {
     }
 
     private void exceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.error("Failed to submit events", throwable);
+        LOGGER.error("Exception caught in executor service", throwable);
     }
 }
